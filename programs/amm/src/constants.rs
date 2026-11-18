@@ -11,4 +11,4 @@ pub const LP_SEED: &[u8] = b"lp";
 // The maximum fee for the pools
 
 #[constant]
-pub const MAX_FEE: u16 = 10_000; // 100%
+pub const MAX_FEE_BPS: u16 = 10_000; // 100%

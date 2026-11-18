@@ -1,9 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token_interface::{Mint, TokenInterface};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::state::Config;
 use crate::constants::*;
+use crate::error::AmmError;
 
 #[derive(Accounts)]
 #[instruction(seed: u64)]
@@ -38,6 +39,28 @@ pub struct Initialize<'info> {
     )]
     pub mint_y: InterfaceAccount<'info, Mint>,
 
+    // Creating the vaults for the pools resereves
+    // ATAs are PDAs themselves, there is no need for seeds and a bump
+    // Config is the authority so only the program can move tokens out.
+
+    #[account(
+        init,
+        payer = initializer,
+        associated_token::mint = mint_x,
+        associated_token::authority = config,
+        associated_token::token_program = token_program,
+    )]
+    pub vault_x: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        init,
+        payer = initializer,
+        associated_token::mint = mint_y,
+        associated_token::authority = config,
+        associated_token::token_program = token_program,
+    )]
+    pub vault_y: InterfaceAccount<'info, TokenAccount>,
+
     // This is creating the mint for the LP token. It does not create tokens
     // but sets up the rules that the LP tokens will follow when they are created.
     // This will be created when a new pool is created, and it is a PDA with the
@@ -69,4 +92,27 @@ pub struct Initialize<'info> {
     pub system_program: Program<'info, System>,
 }
 
-impl<'info> Initialize<'info> {}
+impl<'info> Initialize<'info> {
+    pub fn create_pool(
+        &mut self, 
+        seed: u64, 
+        fee: u16, 
+        authority: Option<Pubkey>, 
+        bumps: &InitializeBumps
+    ) -> Result<()> {
+        require!(fee <= MAX_FEE_BPS, AmmError::InvalidFee);
+
+        self.config.set_inner(Config{
+            seed,
+            authority,
+            mint_x: self.mint_x.key(),
+            mint_y: self.mint_y.key(),
+            fee,
+            locked: false,
+            config_bump: bumps.config,
+            lp_bump: bumps.lp_mint,
+        });
+
+        Ok(())
+    }
+}

@@ -15,7 +15,12 @@ declare_id!("2cCvsHgXPFvRLgbbrPbRyVQBoqGhR9D8iEjJj4D9jmRg");
 pub mod amm {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        crate::instructions::initialize::handle_initialize(ctx)
+    pub fn initialize(
+        ctx: Context<Initialize>, 
+        seed: u64, 
+        fee: u16, 
+        authority: Option<Pubkey>, 
+    ) -> Result<()> {
+        ctx.accounts.create_pool(seed, fee, authority, &ctx.bumps)
     }
 }
