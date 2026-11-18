@@ -1,10 +1,14 @@
 use anchor_lang::prelude::*;
 
-#[constant]
-pub const COUNTER_SEED: &[u8] = b"counter";
+// Every PDA within the program derives need a seed
 
 #[constant]
-pub const HELLO_WORLD_LAMPORTS: u64 = 1;
+pub const CONFIG_SEED: &[u8] = b"config";
 
 #[constant]
-pub const MAX_COUNT: u64 = 10;
+pub const LP_SEED: &[u8] = b"lp";
+
+// The maximum fee for the pools
+
+#[constant]
+pub const MAX_FEE: u16 = 10_000; // 100%
