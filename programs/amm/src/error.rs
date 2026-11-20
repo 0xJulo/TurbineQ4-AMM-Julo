@@ -4,4 +4,12 @@ use anchor_lang::prelude::*;
 pub enum AmmError {
     #[msg("Pool fee is too high")]
     InvalidFee,
+    #[msg("The pool is currently locked")]
+    PoolLocked,
+    #[msg("The amount must be greater than zero")]
+    InvalidAmount,
+    #[msg("The Curve calculation failed")]
+    CurveError,
+    #[msg("The slippage exceeded the allowed amount")]
+    SlippageExceeded,
 }
