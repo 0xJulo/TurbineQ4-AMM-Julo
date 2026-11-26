@@ -32,4 +32,13 @@ pub mod amm {
     ) -> Result<()> {
         ctx.accounts.deposit(amount, max_x, max_y)
     }
+
+    pub fn swap(
+        ctx: Context<Swap>,
+        is_x: bool,
+        amount: u64,
+        min: u64,
+    ) -> Result<()> {
+        ctx.accounts.swap(is_x, amount, min)
+    }
 }
