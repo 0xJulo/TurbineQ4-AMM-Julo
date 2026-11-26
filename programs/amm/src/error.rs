@@ -12,4 +12,6 @@ pub enum AmmError {
     CurveError,
     #[msg("The slippage exceeded the allowed amount")]
     SlippageExceeded,
+    #[msg("The authority is not the pool authority")]
+    InvalidAuthority,
 }

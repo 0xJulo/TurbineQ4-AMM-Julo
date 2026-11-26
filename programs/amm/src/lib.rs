@@ -50,4 +50,16 @@ pub mod amm {
     ) -> Result<()> {
         ctx.accounts.withdraw(amount, min_x, min_y)
     }
+
+    pub fn lock(
+        ctx: Context<Lock>,
+    ) -> Result<()> {
+        ctx.accounts.lock_pool()
+    }
+
+    pub fn unlock(
+        ctx: Context<Unlock>,
+    ) -> Result<()> {
+        ctx.accounts.unlock_pool()
+    }
 }
