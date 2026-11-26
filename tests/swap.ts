@@ -2,12 +2,12 @@ import { expect } from "chai";
 import {
   depositLiquidity,
   expectAmmError,
+  expectedProtocolCut,
   FEE,
   getTokenBalance,
   initializePool,
   ONE_TOKEN,
   PoolContext,
-  PROTOCOL_FEE,
   setupPool,
   swapTokens,
 } from "./helpers/setup";
@@ -57,20 +57,6 @@ describe("swap", () => {
     const inAfterFee = (BigInt(amountIn) * BigInt(10_000 - FEE)) / BigInt(10_000);
     const out = (BigInt(reserveOut) * inAfterFee) / (BigInt(reserveIn) + inAfterFee);
     return Number(out);
-  }
-
-  // Work out the treasury's cut of a swap, with the same formula the
-  // program uses.
-  //
-  // 1. The fee in tokens = what the user pays in, minus the part that
-  //    counted towards the swap.
-  // 2. The treasury gets PROTOCOL_FEE basis points of that fee
-  //    (2,000 = 20%). The rest of the fee stays in the pool.
-
-  function expectedProtocolCut(amountIn: number): number {
-    const inAfterFee = (BigInt(amountIn) * BigInt(10_000 - FEE)) / BigInt(10_000);
-    const feeAmount = BigInt(amountIn) - inAfterFee;
-    return Number((feeAmount * BigInt(PROTOCOL_FEE)) / BigInt(10_000));
   }
 
   // The user pays in token X and receives token Y.

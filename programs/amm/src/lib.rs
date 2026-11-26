@@ -63,4 +63,10 @@ pub mod amm {
     ) -> Result<()> {
         ctx.accounts.unlock_pool()
     }
+
+    pub fn withdraw_treasury(
+        ctx: Context<WithdrawTreasury>,
+    ) -> Result<()> {
+        ctx.accounts.withdraw_treasury()
+    }
 }

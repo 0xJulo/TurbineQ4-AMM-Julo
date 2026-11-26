@@ -367,6 +367,54 @@ export function unlockPool(
     .rpc();
 }
 
+// Call the program's withdraw_treasury instruction.
+//
+// signer is whoever signs as the authority. By default it is the payer,
+// the pool's real admin. A test can pass a different keypair to check that
+// a stranger is refused.
+//
+// The fees are paid into the signer's own token accounts for X and Y
+// (authorityX and authorityY). The program creates them if they are missing.
+
+export function withdrawTreasury(
+  pool: PoolContext,
+  signer: anchor.web3.Keypair = payer,
+): Promise<string> {
+  return program.methods
+    .withdrawTreasury()
+    .accountsPartial({
+      authority: signer.publicKey,
+      config: pool.config,
+      mintX: pool.mintX,
+      mintY: pool.mintY,
+      treasury: pool.treasury,
+      treasuryX: pool.treasuryX,
+      treasuryY: pool.treasuryY,
+      authorityX: getAssociatedTokenAddressSync(pool.mintX, signer.publicKey),
+      authorityY: getAssociatedTokenAddressSync(pool.mintY, signer.publicKey),
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .signers(signer === payer ? [] : [signer])
+    .rpc();
+}
+
+// Work out the treasury's cut of a swap, with the same formula the
+// program uses.
+//
+// 1. The fee in tokens = what the user pays in, minus the part that
+//    counted towards the swap.
+// 2. The treasury gets PROTOCOL_FEE basis points of that fee
+//    (2,000 = 20%). The rest of the fee stays in the pool.
+//
+// BigInt is used so the maths is exact, and dividing BigInts rounds down,
+// the same as the program.
+
+export function expectedProtocolCut(amountIn: number): number {
+  const inAfterFee = (BigInt(amountIn) * BigInt(10_000 - FEE)) / BigInt(10_000);
+  const feeAmount = BigInt(amountIn) - inAfterFee;
+  return Number((feeAmount * BigInt(PROTOCOL_FEE)) / BigInt(10_000));
+}
+
 // Check that a call to the program fails with one particular AmmError.
 //   action       = the call that should fail (the promise from .rpc())
 //   expectedCode = the name of the error variant, for example "InvalidAmount"
