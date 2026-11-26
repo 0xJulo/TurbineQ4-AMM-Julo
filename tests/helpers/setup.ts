@@ -277,6 +277,37 @@ export function swapTokens(
     .rpc();
 }
 
+// Call the program's withdraw instruction as the user.
+//   lpAmount = how many LP tokens the user hands back to be burned
+//   minX     = the least token X the user will accept back
+//   minY     = the least token Y the user will accept back
+//
+// Like the other helpers, it returns the promise from .rpc().
+
+export function withdrawLiquidity(
+  pool: PoolContext,
+  lpAmount: number,
+  minX: number,
+  minY: number,
+): Promise<string> {
+  return program.methods
+    .withdraw(new anchor.BN(lpAmount), new anchor.BN(minX), new anchor.BN(minY))
+    .accountsPartial({
+      user: payer.publicKey,
+      config: pool.config,
+      mintX: pool.mintX,
+      mintY: pool.mintY,
+      vaultX: pool.vaultX,
+      vaultY: pool.vaultY,
+      userX: pool.userX,
+      userY: pool.userY,
+      lpMint: pool.lpMint,
+      userLp: pool.userLp,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+}
+
 // Check that a call to the program fails with one particular AmmError.
 //   action       = the call that should fail (the promise from .rpc())
 //   expectedCode = the name of the error variant, for example "InvalidAmount"
