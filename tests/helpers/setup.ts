@@ -247,6 +247,36 @@ export function depositLiquidity(
     .rpc();
 }
 
+// Call the program's swap instruction as the user.
+//   isX    = true: the user pays in token X and receives Y. false: the reverse.
+//   amount = how much the user pays in
+//   min    = the least the user will accept back (slippage protection)
+//
+// Like depositLiquidity, it returns the promise from .rpc().
+
+export function swapTokens(
+  pool: PoolContext,
+  isX: boolean,
+  amount: number,
+  min: number,
+): Promise<string> {
+  return program.methods
+    .swap(isX, new anchor.BN(amount), new anchor.BN(min))
+    .accountsPartial({
+      user: payer.publicKey,
+      config: pool.config,
+      mintX: pool.mintX,
+      mintY: pool.mintY,
+      vaultX: pool.vaultX,
+      vaultY: pool.vaultY,
+      userX: pool.userX,
+      userY: pool.userY,
+      lpMint: pool.lpMint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+}
+
 // Check that a call to the program fails with one particular AmmError.
 //   action       = the call that should fail (the promise from .rpc())
 //   expectedCode = the name of the error variant, for example "InvalidAmount"

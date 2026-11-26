@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, transfer_checked, TransferChecked};
-use constant_product_curve::{ConstantProduct, LiquidityPair};
 
 use crate::state::Config;
 use crate::constants::*;
@@ -93,34 +92,24 @@ impl<'info> Swap<'info> {
         // Check that the amount coming into the function is greater than zero
         require!(amount > 0, AmmError::InvalidAmount);
 
-        // This function takes a snapshot of the curve, so that the swap
-        // maths can be worked out on the next step. 
-        // Add in the map error here because it returns a box and this box
-        // needs to be opened.
-        let mut curve = ConstantProduct::init(
-            self.vault_x.amount,
-            self.vault_y.amount,
-            self.lp_mint.supply,
-            self.config.fee,
-            None,
-        ).map_err(|_| AmmError::CurveError)?;
-        // Pick the direction to see which token is being swapped in.
-        let direction = match is_x {
-            true => LiquidityPair::X,
-            false => LiquidityPair::Y,
+        // Pick the two pool balances the swap maths needs.
+        // reserve_in  = how much the pool holds of the token being paid in
+        // reserve_out = how much the pool holds of the token being paid out
+        // If is_x is true the user pays in X, so X is "in" and Y is "out".
+        let (reserve_in, reserve_out) = match is_x {
+            true => (self.vault_x.amount, self.vault_y.amount),
+            false => (self.vault_y.amount, self.vault_x.amount),
         };
-        // Work out the swap, how much the user pays in and how much they get back.
-        // No tokens move yet, this is only the maths.
-        let result = curve.swap(
-            direction,
-            amount,
-            min,
-        ).map_err(|_| AmmError::CurveError)?;
+        let in_after_fee = (amount as u128) * (10_000 - self.config.fee as u128) / 10_000;
+        let amount_out = (reserve_out as u128 * in_after_fee / (reserve_in as u128 + in_after_fee)) as u64;
+        // Slippage protection: the user must get back at least their minimum.
+        // If not, stop here and undo the whole swap.
+        require!(amount_out >= min, AmmError::SlippageExceeded);
         // Call the function below to deposit the tokens
-        self.deposit_tokens(is_x, result.deposit)?;
+        self.deposit_tokens(is_x, amount)?;
         // Call the function below to withdraw the tokens
         // You are adding ! so that it is the opposite of the token going in.
-        self.withdraw_tokens(!is_x, result.withdraw)?;
+        self.withdraw_tokens(!is_x, amount_out)?;
 
 
         Ok(())
