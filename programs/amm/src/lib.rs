@@ -19,9 +19,10 @@ pub mod amm {
         ctx: Context<Initialize>, 
         seed: u64, 
         fee: u16, 
+        protocol_fee: u16,
         authority: Option<Pubkey>, 
     ) -> Result<()> {
-        ctx.accounts.create_pool(seed, fee, authority, &ctx.bumps)
+        ctx.accounts.create_pool(seed, fee, protocol_fee, authority, &ctx.bumps)
     }
 
     pub fn deposit(

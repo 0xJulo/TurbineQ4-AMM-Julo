@@ -36,6 +36,11 @@ export const payer = (provider.wallet as anchor.Wallet).payer;
 
 export const FEE = 30;
 
+// The share of each swap fee that goes to the protocol's treasury,
+// in basis points (2,000 = 20% of the fee). The rest stays in the pool.
+
+export const PROTOCOL_FEE = 2_000;
+
 // Both test mints have 6 decimals, so one whole token is 1,000,000
 // in the smallest unit. Amounts on-chain are always in the smallest unit.
 
@@ -205,7 +210,7 @@ export async function initializePool(
   authority: anchor.web3.PublicKey | null = payer.publicKey,
 ): Promise<void> {
   await program.methods
-    .initialize(pool.seed, FEE, authority)
+    .initialize(pool.seed, FEE, PROTOCOL_FEE, authority)
     .accountsPartial({
       initializer: payer.publicKey,
       mintX: pool.mintX,

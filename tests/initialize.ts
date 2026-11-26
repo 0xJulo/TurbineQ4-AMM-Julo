@@ -6,6 +6,7 @@ import {
   getPoolAddresses,
   payer,
   PoolContext,
+  PROTOCOL_FEE,
   program,
   setupPool,
 } from "./helpers/setup";
@@ -28,6 +29,7 @@ describe("initialize", () => {
     await program.methods.initialize(
       pool.seed,
       FEE,
+      PROTOCOL_FEE,
       payer.publicKey
     )
     .accountsPartial({
@@ -49,6 +51,7 @@ describe("initialize", () => {
     // And if locked is false.
 
     expect(configAccount.fee).to.equal(FEE);
+    expect(configAccount.protocolFee).to.equal(PROTOCOL_FEE);
     expect(configAccount.locked).to.equal(false);
     expect(configAccount.mintX.toBase58()).to.equal(pool.mintX.toBase58());
     expect(configAccount.mintY.toBase58()).to.equal(pool.mintY.toBase58());
@@ -78,6 +81,7 @@ describe("initialize", () => {
       await program.methods.initialize(
         badSeed,
         badFee,
+        PROTOCOL_FEE,
         payer.publicKey
       )
       .accountsPartial({
