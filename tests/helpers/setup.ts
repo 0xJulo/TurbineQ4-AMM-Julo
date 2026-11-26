@@ -10,11 +10,13 @@ import {
   createAssociatedTokenAccountInstruction,
   createInitializeMint2Instruction,
   createMintToInstruction,
+  getAccount,
   getAssociatedTokenAddressSync,
   getMinimumBalanceForRentExemptMint,
   MINT_SIZE,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { expect } from "chai";
 
 // Configure the client to use the local cluster.
 
@@ -187,4 +189,99 @@ export async function setupPool(seedNumber: number): Promise<PoolContext> {
   const userLp = getAssociatedTokenAddressSync(lpMint, payer.publicKey);
 
   return { seed, mintX, mintY, config, lpMint, vaultX, vaultY, userX, userY, userLp };
+}
+
+// Create the pool on-chain by calling the program's initialize instruction.
+// The payer is both the initializer (who pays) and the pool's authority
+// (the admin who can lock and unlock it).
+//
+// Test files for the other instructions call this in their before block,
+// because they need a pool to exist before they can test anything.
+
+export async function initializePool(pool: PoolContext): Promise<void> {
+  await program.methods
+    .initialize(pool.seed, FEE, payer.publicKey)
+    .accountsPartial({
+      initializer: payer.publicKey,
+      mintX: pool.mintX,
+      mintY: pool.mintY,
+      config: pool.config,
+      vaultX: pool.vaultX,
+      vaultY: pool.vaultY,
+      lpMint: pool.lpMint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+}
+
+// Call the program's deposit instruction as the user.
+//   lpAmount = how many LP tokens the user wants
+//   maxX     = the most token X the user is willing to put in
+//   maxY     = the most token Y the user is willing to put in
+// The amounts are u64 in Rust, so they are passed as BN (big numbers).
+//
+// It returns the promise from .rpc(), so a test can either await it
+// (expecting it to work) or hand it to expectAmmError (expecting it to fail).
+
+export function depositLiquidity(
+  pool: PoolContext,
+  lpAmount: number,
+  maxX: number,
+  maxY: number,
+): Promise<string> {
+  return program.methods
+    .deposit(new anchor.BN(lpAmount), new anchor.BN(maxX), new anchor.BN(maxY))
+    .accountsPartial({
+      user: payer.publicKey,
+      config: pool.config,
+      mintX: pool.mintX,
+      mintY: pool.mintY,
+      vaultX: pool.vaultX,
+      vaultY: pool.vaultY,
+      userX: pool.userX,
+      userY: pool.userY,
+      lpMint: pool.lpMint,
+      userLp: pool.userLp,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+}
+
+// Check that a call to the program fails with one particular AmmError.
+//   action       = the call that should fail (the promise from .rpc())
+//   expectedCode = the name of the error variant, for example "InvalidAmount"
+//
+// try: wait for the call. If it succeeds, that is wrong, so fail the test.
+// catch: check it failed with the expected error, not for some other reason.
+// The `failed` flag keeps the two cases apart: without it, the error thrown
+// by expect.fail would itself be caught by the catch block.
+
+export async function expectAmmError(
+  action: Promise<unknown>,
+  expectedCode: string,
+): Promise<void> {
+  let failed = false;
+
+  try {
+    await action;
+  } catch (err) {
+    failed = true;
+    expect(err).to.be.instanceOf(anchor.AnchorError);
+    expect((err as anchor.AnchorError).error.errorCode.code).to.equal(expectedCode);
+  }
+
+  if (!failed) {
+    expect.fail(`the call should have failed with ${expectedCode}, but it succeeded`);
+  }
+}
+
+// Read how many tokens a token account holds, in the smallest unit.
+// getAccount reads the account from the validator. Its amount comes back as
+// a bigint, which is turned into a normal number so it is easy to compare.
+
+export async function getTokenBalance(
+  tokenAccount: anchor.web3.PublicKey,
+): Promise<number> {
+  const account = await getAccount(provider.connection, tokenAccount);
+  return Number(account.amount);
 }
