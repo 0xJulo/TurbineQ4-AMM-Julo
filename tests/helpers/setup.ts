@@ -1,0 +1,190 @@
+// Shared setup for every test file.
+//
+// Each test file imports from here and calls setupPool() with its own seed,
+// so every file gets its own fresh pool and can run on its own, in any order.
+
+import * as anchor from "@anchor-lang/core";
+import { Program } from "@anchor-lang/core";
+import { Amm } from "../../target/types/amm";
+import {
+  createAssociatedTokenAccountInstruction,
+  createInitializeMint2Instruction,
+  createMintToInstruction,
+  getAssociatedTokenAddressSync,
+  getMinimumBalanceForRentExemptMint,
+  MINT_SIZE,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+
+// Configure the client to use the local cluster.
+
+export const provider = anchor.AnchorProvider.env();
+anchor.setProvider(provider);
+
+// Load the Amm program.
+
+export const program = anchor.workspace.amm as Program<Amm>;
+
+// The wallet that pays for and signs the setup transactions.
+// It also acts as the user in the tests.
+
+export const payer = (provider.wallet as anchor.Wallet).payer;
+
+// The pool fee used by the tests, in basis points (30 = 0.3%).
+
+export const FEE = 30;
+
+// Both test mints have 6 decimals, so one whole token is 1,000,000
+// in the smallest unit. Amounts on-chain are always in the smallest unit.
+
+export const DECIMALS = 6;
+export const ONE_TOKEN = 1_000_000;
+
+// How many of each token the user starts with: 1,000 tokens.
+
+export const USER_START_BALANCE = 1_000 * ONE_TOKEN;
+
+// Everything a test needs to know about one pool and its user.
+
+export type PoolContext = {
+  seed: anchor.BN;                 // the pool's seed
+  mintX: anchor.web3.PublicKey;    // test mint for token X
+  mintY: anchor.web3.PublicKey;    // test mint for token Y
+  config: anchor.web3.PublicKey;   // the pool's Config PDA
+  lpMint: anchor.web3.PublicKey;   // the pool's LP mint PDA
+  vaultX: anchor.web3.PublicKey;   // config's token account for X
+  vaultY: anchor.web3.PublicKey;   // config's token account for Y
+  userX: anchor.web3.PublicKey;    // the user's token account for X
+  userY: anchor.web3.PublicKey;    // the user's token account for Y
+  userLp: anchor.web3.PublicKey;   // the user's token account for LP tokens
+};
+
+// Work out the addresses that belong to one pool.
+//
+// The Config and LP mint are PDAs: findProgramAddressSync returns
+// [address, bump], hence the brackets. The seeds must match the program's
+// seeds, in the same order, to get the right PDA.
+//
+// The vaults are ATAs owned by config. Config is a PDA (off the curve),
+// so allowOwnerOffCurve has to be true.
+
+export function getPoolAddresses(
+  seed: anchor.BN,
+  mintX: anchor.web3.PublicKey,
+  mintY: anchor.web3.PublicKey,
+) {
+  const [config] = anchor.web3.PublicKey.findProgramAddressSync([
+    Buffer.from("config"),
+    seed.toArrayLike(Buffer, "le", 8),
+  ], program.programId);
+
+  const [lpMint] = anchor.web3.PublicKey.findProgramAddressSync([
+    Buffer.from("lp"),
+    config.toBuffer(),
+  ], program.programId);
+
+  const vaultX = getAssociatedTokenAddressSync(mintX, config, true);
+  const vaultY = getAssociatedTokenAddressSync(mintY, config, true);
+
+  return { config, lpMint, vaultX, vaultY };
+}
+
+// Build everything a test file needs, for the pool with the given seed:
+//   - two new test mints
+//   - the pool's addresses (config, LP mint, vaults)
+//   - the user's token accounts, holding USER_START_BALANCE of each token
+//
+// It does NOT call initialize. The pool's accounts do not exist yet, only
+// their addresses are known. Each test file decides what to do from here.
+
+export async function setupPool(seedNumber: number): Promise<PoolContext> {
+  const seed = new anchor.BN(seedNumber);
+
+  // A mint lives at a normal (non-PDA) address, so each one needs a new keypair.
+
+  const mintXKeypair = anchor.web3.Keypair.generate();
+  const mintYKeypair = anchor.web3.Keypair.generate();
+  const mintX = mintXKeypair.publicKey;
+  const mintY = mintYKeypair.publicKey;
+
+  // The user's own token accounts for X and Y. The user is the payer wallet.
+
+  const userX = getAssociatedTokenAddressSync(mintX, payer.publicKey);
+  const userY = getAssociatedTokenAddressSync(mintY, payer.publicKey);
+
+  // How much SOL a mint account needs to be rent exempt.
+
+  const mintRent = await getMinimumBalanceForRentExemptMint(provider.connection);
+
+  // One transaction that creates both mints, creates the user's two token
+  // accounts, and mints the user their starting tokens.
+  //
+  // Creating a mint takes two instructions: the System Program creates an
+  // empty account owned by the Token Program, then the Token Program sets it
+  // up as a mint. The payer is the mint authority, so it is allowed to mint.
+
+  const setupTx = new anchor.web3.Transaction();
+
+  for (const mint of [mintX, mintY]) {
+    setupTx.add(
+      anchor.web3.SystemProgram.createAccount({
+        fromPubkey: payer.publicKey,   // pays the rent
+        newAccountPubkey: mint,        // the new mint's address
+        space: MINT_SIZE,              // how big a mint account is
+        lamports: mintRent,
+        programId: TOKEN_PROGRAM_ID,   // the Token Program will own it
+      }),
+      createInitializeMint2Instruction(
+        mint,
+        DECIMALS,
+        payer.publicKey,  // mint authority
+        null,             // no freeze authority
+      ),
+    );
+  }
+
+  setupTx.add(
+    createAssociatedTokenAccountInstruction(
+      payer.publicKey,  // pays the rent
+      userX,            // the account being created
+      payer.publicKey,  // who owns the account
+      mintX,            // which token it holds
+    ),
+    createAssociatedTokenAccountInstruction(
+      payer.publicKey,
+      userY,
+      payer.publicKey,
+      mintY,
+    ),
+    createMintToInstruction(
+      mintX,            // which token to mint
+      userX,            // where the new tokens go
+      payer.publicKey,  // the mint authority
+      USER_START_BALANCE,
+    ),
+    createMintToInstruction(
+      mintY,
+      userY,
+      payer.publicKey,
+      USER_START_BALANCE,
+    ),
+  );
+
+  // Send it through Anchor's provider, the same way program.methods...rpc()
+  // sends the program's instructions. The provider's wallet (the payer) signs,
+  // and so do the two mint keypairs, because their accounts are being created.
+
+  await provider.sendAndConfirm(setupTx, [mintXKeypair, mintYKeypair]);
+
+  // The addresses that belong to this pool.
+
+  const { config, lpMint, vaultX, vaultY } = getPoolAddresses(seed, mintX, mintY);
+
+  // The user's LP token account. Only the address is worked out here.
+  // The account itself does not exist yet: the first deposit creates it
+  // (that is the init_if_needed on user_lp in the program).
+
+  const userLp = getAssociatedTokenAddressSync(lpMint, payer.publicKey);
+
+  return { seed, mintX, mintY, config, lpMint, vaultX, vaultY, userX, userY, userLp };
+}
