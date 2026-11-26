@@ -192,15 +192,20 @@ export async function setupPool(seedNumber: number): Promise<PoolContext> {
 }
 
 // Create the pool on-chain by calling the program's initialize instruction.
-// The payer is both the initializer (who pays) and the pool's authority
-// (the admin who can lock and unlock it).
+// The payer is the initializer (who pays).
+//
+// authority is the pool's admin, who can lock and unlock it. By default it
+// is the payer. Pass null to create a pool with no admin at all.
 //
 // Test files for the other instructions call this in their before block,
 // because they need a pool to exist before they can test anything.
 
-export async function initializePool(pool: PoolContext): Promise<void> {
+export async function initializePool(
+  pool: PoolContext,
+  authority: anchor.web3.PublicKey | null = payer.publicKey,
+): Promise<void> {
   await program.methods
-    .initialize(pool.seed, FEE, payer.publicKey)
+    .initialize(pool.seed, FEE, authority)
     .accountsPartial({
       initializer: payer.publicKey,
       mintX: pool.mintX,
@@ -305,6 +310,37 @@ export function withdrawLiquidity(
       userLp: pool.userLp,
       tokenProgram: TOKEN_PROGRAM_ID,
     })
+    .rpc();
+}
+
+// Call the program's lock or unlock instruction.
+//
+// signer is whoever signs as the authority. By default it is the payer,
+// who is the pool's real admin in these tests. A test can pass a different
+// keypair to check that a stranger is refused.
+//
+// The payer always signs and pays the transaction fee through the provider.
+// A different signer is added with .signers(), so they sign too.
+
+export function lockPool(
+  pool: PoolContext,
+  signer: anchor.web3.Keypair = payer,
+): Promise<string> {
+  return program.methods
+    .lock()
+    .accountsPartial({ authority: signer.publicKey, config: pool.config })
+    .signers(signer === payer ? [] : [signer])
+    .rpc();
+}
+
+export function unlockPool(
+  pool: PoolContext,
+  signer: anchor.web3.Keypair = payer,
+): Promise<string> {
+  return program.methods
+    .unlock()
+    .accountsPartial({ authority: signer.publicKey, config: pool.config })
+    .signers(signer === payer ? [] : [signer])
     .rpc();
 }
 
