@@ -146,7 +146,7 @@ impl<'info> Deposit<'info> {
                 self.vault_y.amount,
                 self.lp_mint.supply,
                 amount,
-                6,
+                1_000_000,
             ).map_err(|_| error!(AmmError::CurveError))?;
 
             require!(amounts.x <= max_x && amounts.y <= max_y, AmmError::SlippageExceeded);
