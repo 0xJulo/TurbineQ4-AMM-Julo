@@ -47,6 +47,31 @@ pub struct Swap<'info> {
         associated_token::token_program = token_program,
     )]
     pub vault_y: Box<InterfaceAccount<'info, TokenAccount>>,
+    // The treasury PDA. It holds no data: its only job is to own the
+    // treasury's token accounts, the way config owns the vaults.
+    // Checked with the bump that was saved in initialize.
+    #[account(
+        seeds = [TREASURY_SEED, config.key().as_ref()],
+        bump = config.treasury_bump,
+    )]
+    pub treasury: SystemAccount<'info>,
+    // The treasury's token accounts, where the protocol's share of each
+    // swap fee is sent. Mutable because a swap adds to one of them.
+    // These checks prove each one is the treasury's ATA for the mint.
+    #[account(
+        mut,
+        associated_token::mint = mint_x,
+        associated_token::authority = treasury,
+        associated_token::token_program = token_program,
+    )]
+    pub treasury_x: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(
+        mut,
+        associated_token::mint = mint_y,
+        associated_token::authority = treasury,
+        associated_token::token_program = token_program,
+    )]
+    pub treasury_y: Box<InterfaceAccount<'info, TokenAccount>>,
     // The user's own token accounts: one is paid from, the other is paid into.
     // Which is which depends on is_x, and that is only known when the
     // instruction runs. The accounts are checked before that, so BOTH use
@@ -102,11 +127,22 @@ impl<'info> Swap<'info> {
         };
         let in_after_fee = (amount as u128) * (10_000 - self.config.fee as u128) / 10_000;
         let amount_out = (reserve_out as u128 * in_after_fee / (reserve_in as u128 + in_after_fee)) as u64;
+
+        // The fee, in tokens: what the user pays in, minus the part that
+        // counted towards the swap.
+        let fee_amount = amount as u128 - in_after_fee;
+
+        // The treasury's share of that fee. protocol_fee is in basis points,
+        // so 2,000 means 20% of the fee. The rest of the fee stays in the pool.
+        let protocol_cut = (fee_amount * self.config.protocol_fee as u128 / 10_000) as u64;
         // Slippage protection: the user must get back at least their minimum.
         // If not, stop here and undo the whole swap.
         require!(amount_out >= min, AmmError::SlippageExceeded);
-        // Call the function below to deposit the tokens
-        self.deposit_tokens(is_x, amount)?;
+        // The user's payment is split in two.
+        // The vault gets the payment minus the treasury's cut.
+        self.deposit_tokens(is_x, amount - protocol_cut)?;
+        // The treasury gets its cut of the fee.
+        self.pay_treasury(is_x, protocol_cut)?;
         // Call the function below to withdraw the tokens
         // You are adding ! so that it is the opposite of the token going in.
         self.withdraw_tokens(!is_x, amount_out)?;
@@ -133,6 +169,39 @@ impl<'info> Swap<'info> {
         let cpi_account = TransferChecked {
             from, 
             to, 
+            mint,
+            authority: self.user.to_account_info(),
+        };
+        let cpi_program = self.token_program.key();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_account);
+        transfer_checked(cpi_ctx, amount, decimals)?;
+
+        Ok(())
+    }
+
+    // Sends the protocol's share of the fee from the user to the treasury.
+    // It is the same as deposit_tokens, except the tokens go to the
+    // treasury's token account and not the pool's vault.
+    // The user owns the tokens and signed the transaction, so a plain
+    // CpiContext::new is enough.
+    pub fn pay_treasury(&mut self, is_x: bool, amount: u64) -> Result<()> {
+        let (from, to, mint, decimals) = match is_x {
+            true => (
+                self.user_x.to_account_info(),
+                self.treasury_x.to_account_info(),
+                self.mint_x.to_account_info(),
+                self.mint_x.decimals,
+            ),
+            false => (
+                self.user_y.to_account_info(),
+                self.treasury_y.to_account_info(),
+                self.mint_y.to_account_info(),
+                self.mint_y.decimals,
+            ),
+        };
+        let cpi_account = TransferChecked {
+            from,
+            to,
             mint,
             authority: self.user.to_account_info(),
         };

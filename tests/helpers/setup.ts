@@ -61,6 +61,9 @@ export type PoolContext = {
   lpMint: anchor.web3.PublicKey;   // the pool's LP mint PDA
   vaultX: anchor.web3.PublicKey;   // config's token account for X
   vaultY: anchor.web3.PublicKey;   // config's token account for Y
+  treasury: anchor.web3.PublicKey;   // the treasury PDA, which owns the two below
+  treasuryX: anchor.web3.PublicKey;  // the treasury's token account for X
+  treasuryY: anchor.web3.PublicKey;  // the treasury's token account for Y
   userX: anchor.web3.PublicKey;    // the user's token account for X
   userY: anchor.web3.PublicKey;    // the user's token account for Y
   userLp: anchor.web3.PublicKey;   // the user's token account for LP tokens
@@ -93,7 +96,18 @@ export function getPoolAddresses(
   const vaultX = getAssociatedTokenAddressSync(mintX, config, true);
   const vaultY = getAssociatedTokenAddressSync(mintY, config, true);
 
-  return { config, lpMint, vaultX, vaultY };
+  // The treasury is a PDA too, with seeds ["treasury", config]. Its token
+  // accounts are ATAs owned by it, the same way the vaults are owned by config.
+
+  const [treasury] = anchor.web3.PublicKey.findProgramAddressSync([
+    Buffer.from("treasury"),
+    config.toBuffer(),
+  ], program.programId);
+
+  const treasuryX = getAssociatedTokenAddressSync(mintX, treasury, true);
+  const treasuryY = getAssociatedTokenAddressSync(mintY, treasury, true);
+
+  return { config, lpMint, vaultX, vaultY, treasury, treasuryX, treasuryY };
 }
 
 // Build everything a test file needs, for the pool with the given seed:
@@ -185,7 +199,8 @@ export async function setupPool(seedNumber: number): Promise<PoolContext> {
 
   // The addresses that belong to this pool.
 
-  const { config, lpMint, vaultX, vaultY } = getPoolAddresses(seed, mintX, mintY);
+  const { config, lpMint, vaultX, vaultY, treasury, treasuryX, treasuryY } =
+    getPoolAddresses(seed, mintX, mintY);
 
   // The user's LP token account. Only the address is worked out here.
   // The account itself does not exist yet: the first deposit creates it
@@ -193,7 +208,10 @@ export async function setupPool(seedNumber: number): Promise<PoolContext> {
 
   const userLp = getAssociatedTokenAddressSync(lpMint, payer.publicKey);
 
-  return { seed, mintX, mintY, config, lpMint, vaultX, vaultY, userX, userY, userLp };
+  return {
+    seed, mintX, mintY, config, lpMint, vaultX, vaultY,
+    treasury, treasuryX, treasuryY, userX, userY, userLp,
+  };
 }
 
 // Create the pool on-chain by calling the program's initialize instruction.
